@@ -9,8 +9,10 @@
 #include "ImGuizmo.h"
 #include <vector>
 #include <string>
+#include <fstream>
+#include <algorithm>
 
-// --- VertexEngine Core Types ---
+// --- Data Structures ---
 struct Keyframe {
     float time;
     Vector3 translation;
@@ -31,103 +33,142 @@ public:
     float currentTime = 0.0f;
     int selectedTrack = -1;
     bool isPlaying = false;
+    char loadPath[256] = "model.glb";
     ImGuizmo::OPERATION currentOp = ImGuizmo::ROTATE;
 
     void Init() {
-        InitWindow(1280, 720, "VertexEngine | NATIVE");
+        InitWindow(1280, 720, "VertexEngine | FULL UNIVERSAL");
         rlImGuiSetup(true);
-        camera = {(Vector3){5, 5, 5}, (Vector3){0, 0, 0}, (Vector3){0, 1, 0}, 45.0f, 0};
+        camera = {(Vector3){5.0f, 5.0f, 5.0f}, (Vector3){0.0f, 0.0f, 0.0f}, (Vector3){0.0f, 1.0f, 0.0f}, 45.0f, 0};
         SetTargetFPS(60);
     }
 
-    void Load(const std::string& path) {
-        tinygltf::TinyGLTF loader; std::string err, warn;
+    void LoadUniversal(const std::string& path) {
+        tinygltf::TinyGLTF loader;
+        std::string err, warn;
         if (loader.LoadBinaryFromFile(&model, &err, &warn, path)) {
             tracks.clear();
+            selectedTrack = -1;
             for (int i = 0; i < (int)model.nodes.size(); i++) {
-                if (!model.nodes[i].name.empty()) tracks.push_back({model.nodes[i].name, i, {}});
+                std::string bName = model.nodes[i].name.empty() ? ("Node_" + std::to_string(i)) : model.nodes[i].name;
+                tracks.push_back({bName, i, {}});
             }
         }
     }
 
-    // --- The "Magic" Math: Converting Raylib to Gizmo ---
-    void DrawBoneGizmo(int nodeIdx, Matrix parentTransform) {
-        auto& node = model.nodes[nodeIdx];
-        Matrix local = MatrixTranslate(node.translation.size() == 3 ? node.translation[0] : 0, 
-                                       node.translation.size() == 3 ? node.translation[1] : 0, 
-                                       node.translation.size() == 3 ? node.translation[2] : 0);
-        
-        if (node.rotation.size() == 4) {
-            local = MatrixMultiply(QuaternionToMatrix({(float)node.rotation[0], (float)node.rotation[1], (float)node.rotation[2], (float)node.rotation[3]}), local);
+    void SaveAnimUniversal(const std::string& path) {
+        std::ofstream file(path);
+        file << "{\n  \"animation\": [\n";
+        for (size_t i = 0; i < tracks.size(); i++) {
+            if (tracks[i].keys.empty()) continue;
+            file << "    { \"bone_idx\": " << tracks[i].nodeIndex << ", \"keys\": [\n";
+            for (size_t j = 0; j < tracks[i].keys.size(); j++) {
+                auto& k = tracks[i].keys[j];
+                file << "      { \"t\":" << k.time 
+                     << ", \"p\":[" << k.translation.x << "," << k.translation.y << "," << k.translation.z << "]"
+                     << ", \"r\":[" << k.rotation.x << "," << k.rotation.y << "," << k.rotation.z << "," << k.rotation.w << "] }";
+                if (j < tracks[i].keys.size() - 1) file << ",";
+                file << "\n";
+            }
+            file << "    ] }" << (i < tracks.size() - 1 ? "," : "") << "\n";
         }
+        file << "  ]\n}";
+        file.close();
+    }
 
+    void DrawNodeRecursive(int nodeIdx, Matrix parentTransform) {
+        auto& node = model.nodes[nodeIdx];
+        
+        // Build local transform from glTF data
+        Matrix local = MatrixIdentity();
+        if (node.scale.size() == 3) local = MatrixMultiply(local, MatrixScale((float)node.scale[0], (float)node.scale[1], (float)node.scale[2]));
+        if (node.rotation.size() == 4) local = MatrixMultiply(local, QuaternionToMatrix({(float)node.rotation[0], (float)node.rotation[1], (float)node.rotation[2], (float)node.rotation[3]}));
+        if (node.translation.size() == 3) local = MatrixMultiply(local, MatrixTranslate((float)node.translation[0], (float)node.translation[1], (float)node.translation[2]));
+        
         Matrix global = MatrixMultiply(local, parentTransform);
         Vector3 pos = {global.m12, global.m13, global.m14};
         Vector3 pPos = {parentTransform.m12, parentTransform.m13, parentTransform.m14};
 
-        // Draw Skeleton Lines
+        // Visual Bone Connection
         if (nodeIdx != model.scenes[0].nodes[0]) DrawLine3D(pPos, pos, GRAY);
         
-        // Find if this node is selected in our track list
-        bool isSelected = false;
-        int trackIdx = -1;
-        for(int i=0; i<tracks.size(); i++) if(tracks[i].nodeIndex == nodeIdx) { trackIdx = i; if(i == selectedTrack) isSelected = true; }
-
+        bool isSelected = (selectedTrack >= 0 && tracks[selectedTrack].nodeIndex == nodeIdx);
         DrawSphere(pos, isSelected ? 0.12f : 0.04f, isSelected ? YELLOW : MAROON);
 
         if (isSelected) {
-            ImGuizmo::SetOrthographic(false);
-            ImGuizmo::SetRect(0, 0, GetScreenWidth(), GetScreenHeight());
-            
+            ImGuizmo::SetRect(0, 0, (float)GetScreenWidth(), (float)GetScreenHeight());
             float view[16], proj[16], matrix[16];
             Matrix matView = GetCameraMatrix(camera);
-            Matrix matProj = GetCameraProjectionMatrix(&camera, (float)GetScreenWidth()/GetScreenHeight());
+            Matrix matProj = GetCameraProjectionMatrix(&camera, (float)GetScreenWidth() / GetScreenHeight());
             
-            // Gizmo needs float arrays
-            memcpy(view, &matView, sizeof(float)*16);
-            memcpy(proj, &matProj, sizeof(float)*16);
-            memcpy(matrix, &global, sizeof(float)*16);
+            memcpy(view, &matView, 16 * sizeof(float));
+            memcpy(proj, &matProj, 16 * sizeof(float));
+            memcpy(matrix, &global, 16 * sizeof(float));
 
             if (ImGuizmo::Manipulate(view, proj, currentOp, ImGuizmo::WORLD, matrix)) {
-                // Decompose and update the node (This is where the posing happens)
+                // FULL WORLD-TO-LOCAL MATH
+                Matrix newWorld = *(Matrix*)matrix;
+                Matrix parentInverse = MatrixInvert(parentTransform);
+                Matrix newLocal = MatrixMultiply(newWorld, parentInverse);
+
+                float localArr[16];
+                memcpy(localArr, &newLocal, 16 * sizeof(float));
                 float t[3], r[3], s[3];
-                ImGuizmo::DecomposeMatrixToComponents(matrix, t, r, s);
-                // Updating Global to Local is complex, but for simple posing:
+                ImGuizmo::DecomposeMatrixToComponents(localArr, t, r, s);
+
                 node.translation = {(double)t[0], (double)t[1], (double)t[2]};
+                Quaternion q = QuaternionFromEuler(r[0] * DEG2RAD, r[1] * DEG2RAD, r[2] * DEG2RAD);
+                node.rotation = {(double)q.x, (double)q.y, (double)q.z, (double)q.w};
+                node.scale = {(double)s[0], (double)s[1], (double)s[2]};
             }
         }
+        for (int child : node.children) DrawNodeRecursive(child, global);
+    }
 
-        for (int child : node.children) DrawBoneGizmo(child, global);
+    void Update() {
+        if (!ImGuizmo::IsUsing()) UpdateCamera(&camera, CAMERA_ORBITAL);
+        
+        if (isPlaying) {
+            currentTime += GetFrameTime();
+            if (currentTime > 10.0f) currentTime = 0.0f;
+        }
+
+        if (IsKeyPressed(KEY_K) && selectedTrack != -1) {
+            auto& n = model.nodes[tracks[selectedTrack].nodeIndex];
+            Vector3 t = (n.translation.size() == 3) ? (Vector3){(float)n.translation[0], (float)n.translation[1], (float)n.translation[2]} : Vector3Zero();
+            Quaternion r = (n.rotation.size() == 4) ? (Quaternion){(float)n.rotation[0], (float)n.rotation[1], (float)n.rotation[2], (float)n.rotation[3]} : QuaternionIdentity();
+            tracks[selectedTrack].keys.push_back({currentTime, t, r});
+            std::sort(tracks[selectedTrack].keys.begin(), tracks[selectedTrack].keys.end(), [](const Keyframe& a, const Keyframe& b) { return a.time < b.time; });
+        }
     }
 
     void Render() {
-        if (!ImGuizmo::IsUsing()) UpdateCamera(&camera, CAMERA_ORBITAL);
-        
         BeginDrawing();
-        ClearBackground((Color){20, 20, 20, 255});
+        ClearBackground((Color){30, 30, 30, 255});
         BeginMode3D(camera);
-            DrawGrid(10, 1.0f);
-            if (!model.scenes.empty()) DrawBoneGizmo(model.scenes[0].nodes[0], MatrixIdentity());
+            DrawGrid(20, 1.0f);
+            if (!model.scenes.empty()) DrawNodeRecursive(model.scenes[0].nodes[0], MatrixIdentity());
         EndMode3D();
 
         rlImGuiBegin();
         ImGuizmo::BeginFrame();
-        ImGui::Begin("VertexEngine | Properties");
-            if (ImGui::Button("LOAD SCOUT")) Load("scout.glb");
+        ImGui::Begin("Universal VertexEngine Control");
+            ImGui::InputText("Model Path", loadPath, 256);
+            if (ImGui::Button("LOAD GLB")) LoadUniversal(loadPath);
+            if (ImGui::Button("SAVE ANIM")) SaveAnimUniversal("export.anim");
             ImGui::Separator();
-            if (ImGui::RadioButton("Move", currentOp == ImGuizmo::TRANSLATE)) currentOp = ImGuizmo::TRANSLATE;
+            if (ImGui::RadioButton("Translate", currentOp == ImGuizmo::TRANSLATE)) currentOp = ImGuizmo::TRANSLATE;
             ImGui::SameLine();
             if (ImGui::RadioButton("Rotate", currentOp == ImGuizmo::ROTATE)) currentOp = ImGuizmo::ROTATE;
             
-            ImGui::SliderFloat("Timeline", &currentTime, 0.0f, 10.0f);
-            if (ImGui::Button("KEY BONE") && selectedTrack != -1) {
-                // Snapshot current bone pos/rot into tracks[selectedTrack].keys
-            }
+            ImGui::SliderFloat("Time", &currentTime, 0.0f, 10.0f);
+            ImGui::Checkbox("Play Preview", &isPlaying);
             
-            ImGui::Text("Bones:");
-            ImGui::BeginChild("BoneList", ImVec2(0, 0), true);
-                for(int i=0; i<tracks.size(); i++) 
-                    if(ImGui::Selectable(tracks[i].name.c_str(), selectedTrack == i)) selectedTrack = i;
+            ImGui::Text("Nodes Hierarchy:");
+            ImGui::BeginChild("NodesList", ImVec2(0, 0), true);
+                for(int i = 0; i < (int)tracks.size(); i++) {
+                    if (ImGui::Selectable(tracks[i].name.c_str(), selectedTrack == i)) selectedTrack = i;
+                }
             ImGui::EndChild();
         ImGui::End();
         rlImGuiEnd();
@@ -136,7 +177,13 @@ public:
 };
 
 int main() {
-    VertexEngine eng; eng.Init();
-    while (!WindowShouldClose()) eng.Render();
+    VertexEngine eng;
+    eng.Init();
+    while (!WindowShouldClose()) {
+        eng.Update();
+        eng.Render();
+    }
+    rlImGuiShutdown();
+    CloseWindow();
     return 0;
 }
