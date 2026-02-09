@@ -16,17 +16,14 @@ jobs:
       with:
         submodules: recursive
 
-    # This is the correct, existing action for Ninja
-    - name: Setup Ninja
-      uses: abel0b/setup-ninja@v1.1
-
     - name: Setup GCC (MinGW)
       uses: egor-tensin/setup-gcc@v1
       with:
         ver: 13
 
     - name: Configure CMake
-      # We tell CMake to use Ninja and the GCC compilers explicitly
+      # Ninja is pre-installed on windows-latest runners. 
+      # We just need to point to the right compilers.
       run: |
         cmake -S . -B build -G Ninja `
         -DCMAKE_C_COMPILER=gcc `
