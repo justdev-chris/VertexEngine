@@ -1,4 +1,4 @@
-name: Build Windows Executable
+name: Build - Direct Compilation
 
 on: [push, pull_request]
 
@@ -9,51 +9,63 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     
-    - name: Download ALL dependencies
-      shell: powershell
-      run: |
-        # Download raylib
-        Invoke-WebRequest -Uri "https://github.com/raysan5/raylib/releases/download/5.0/raylib-5.0_win64_mingw-w64.zip" -OutFile "raylib.zip"
-        Expand-Archive -Path "raylib.zip" -DestinationPath "." -Force
-        
-        # Download tinygltf
-        Invoke-WebRequest -Uri "https://raw.githubusercontent.com/syoyo/tinygltf/master/tiny_gltf.h" -OutFile "tiny_gltf.h"
-        Invoke-WebRequest -Uri "https://raw.githubusercontent.com/nlohmann/json/develop/single_include/nlohmann/json.hpp" -OutFile "json.hpp"
-        Invoke-WebRequest -Uri "https://raw.githubusercontent.com/nothings/stb/master/stb_image.h" -OutFile "stb_image.h"
-        
-        # Download ImGui
-        Invoke-WebRequest -Uri "https://raw.githubusercontent.com/ocornut/imgui/master/imgui.h" -OutFile "imgui.h"
-        Invoke-WebRequest -Uri "https://raw.githubusercontent.com/ocornut/imgui/master/imconfig.h" -OutFile "imconfig.h"
-        Invoke-WebRequest -Uri "https://raw.githubusercontent.com/ocornut/imgui/master/imgui.cpp" -OutFile "imgui.cpp"
-        
-        # Download ImGuizmo
-        Invoke-WebRequest -Uri "https://raw.githubusercontent.com/CedricGuillemet/ImGuizmo/master/ImGuizmo.h" -OutFile "ImGuizmo.h"
-        
-        # Download rlImGui
-        Invoke-WebRequest -Uri "https://raw.githubusercontent.com/raylib-extras/rlImGui/main/rlImGui.h" -OutFile "rlImGui.h"
-        Invoke-WebRequest -Uri "https://raw.githubusercontent.com/raylib-extras/rlImGui/main/rlImGui.cpp" -OutFile "rlImGui.cpp"
-        Invoke-WebRequest -Uri "https://raw.githubusercontent.com/raylib-extras/rlImGui/main/rlImGuiColors.cpp" -OutFile "rlImGuiColors.cpp"
-        
-        # List downloaded files
-        dir *.h *.cpp *.hpp
-    
-    - name: Setup MSYS2
+    - name: Setup MSYS2 and install compiler
       uses: msys2/setup-msys2@v2
       with:
         update: true
         install: >-
           mingw-w64-x86_64-gcc
-          mingw-w64-x86_64-cmake
-          mingw-w64-x86_64-ninja
+          mingw-w64-x86_64-g++
+          git
+          make
     
-    - name: Configure and Build
+    - name: Download ALL dependencies
       shell: msys2 {0}
       run: |
-        cmake -S . -B build -G Ninja
-        cmake --build build --config Release
+        # Download raylib
+        wget https://github.com/raysan5/raylib/releases/download/5.0/raylib-5.0_win64_mingw-w64.zip
+        unzip raylib-5.0_win64_mingw-w64.zip
+        
+        # Download all headers to project root
+        wget -O tiny_gltf.h https://raw.githubusercontent.com/syoyo/tinygltf/master/tiny_gltf.h
+        wget -O json.hpp https://raw.githubusercontent.com/nlohmann/json/develop/single_include/nlohmann/json.hpp
+        wget -O stb_image.h https://raw.githubusercontent.com/nothings/stb/master/stb_image.h
+        wget -O imgui.h https://raw.githubusercontent.com/ocornut/imgui/master/imgui.h
+        wget -O imconfig.h https://raw.githubusercontent.com/ocornut/imgui/master/imconfig.h
+        wget -O imgui.cpp https://raw.githubusercontent.com/ocornut/imgui/master/imgui.cpp
+        wget -O ImGuizmo.h https://raw.githubusercontent.com/CedricGuillemet/ImGuizmo/master/ImGuizmo.h
+        wget -O rlImGui.h https://raw.githubusercontent.com/raylib-extras/rlImGui/main/rlImGui.h
+        wget -O rlImGui.cpp https://raw.githubusercontent.com/raylib-extras/rlImGui/main/rlImGui.cpp
+        wget -O rlImGuiColors.cpp https://raw.githubusercontent.com/raylib-extras/rlImGui/main/rlImGuiColors.cpp
+        
+        ls -la *.h *.cpp *.hpp
+    
+    - name: Compile DIRECTLY with g++
+      shell: msys2 {0}
+      run: |
+        # Compile everything in one command
+        g++ -o VertexEngine.exe \
+            src/main.cpp \
+            imgui.cpp \
+            rlImGui.cpp \
+            rlImGuiColors.cpp \
+            -I. \
+            -Iinclude \
+            -Iraylib-5.0_win64_mingw-w64/include \
+            -Lraylib-5.0_win64_mingw-w64/lib \
+            -lraylib \
+            -lwinmm \
+            -lgdi32 \
+            -lopengl32 \
+            -lshell32 \
+            -Wall -O3 -std=c++17 -static
+        
+        # Verify it works
+        file VertexEngine.exe
+        echo "File size: $(stat -c%s VertexEngine.exe) bytes"
     
     - name: Upload executable
       uses: actions/upload-artifact@v4
       with:
-        name: VertexEngine-Windows
-        path: build/VertexEngine.exe
+        name: VertexEngine-Direct
+        path: VertexEngine.exe
