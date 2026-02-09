@@ -3,7 +3,7 @@
 #define STB_IMAGE_IMPLEMENTATION
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 
-// 2. The Conflict Killer Guards (Solves the "Rectangle" and "CloseWindow" errors)
+// 2. The Conflict Killer Guards
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
@@ -16,6 +16,7 @@
 // 3. Raylib & UI Includes
 #include "raylib.h"
 #include "raymath.h"
+#include "rlgl.h"      // Added for matrix and rendering internals
 #include "imgui.h"
 #include "rlImGui.h"
 #include "ImGuizmo.h"
@@ -51,21 +52,16 @@ public:
     void Init() {
         InitWindow(1280, 720, "VertexEngine | Drag & Drop Universal");
         rlImGuiSetup(true);
-        camera = { (Vector3){5.0f, 5.0f, 5.0f}, (Vector3){0.0f, 0.0f, 0.0f}, (Vector3){0.0f, 1.0f, 0.0f}, 45.0f, 0 };
+        camera = { (Vector3){5.0f, 5.0f, 5.0f}, (Vector3){0.0f, 0.0f, 0.0f}, (Vector3){0.0f, 1.0f, 0.0f}, 45.0f, CAMERA_PERSPECTIVE };
         SetTargetFPS(60);
     }
 
     void LoadUniversal(const std::string& path) {
         tinygltf::TinyGLTF loader;
         std::string err, warn;
-        bool success = false;
-
-        // Determine if it's ASCII (.gltf) or Binary (.glb)
-        if (path.substr(path.find_last_of(".") + 1) == "glb") {
-            success = loader.LoadBinaryFromFile(&model, &err, &warn, path);
-        } else {
-            success = loader.LoadASCIIFromFile(&model, &err, &warn, path);
-        }
+        bool success = (path.substr(path.find_last_of(".") + 1) == "glb") ? 
+                        loader.LoadBinaryFromFile(&model, &err, &warn, path) : 
+                        loader.LoadASCIIFromFile(&model, &err, &warn, path);
 
         if (success) {
             tracks.clear();
@@ -74,7 +70,6 @@ public:
                 std::string bName = model.nodes[i].name.empty() ? ("Node_" + std::to_string(i)) : model.nodes[i].name;
                 tracks.push_back({ bName, i, {} });
             }
-            // Update the text box to show what we loaded
             snprintf(loadPath, sizeof(loadPath), "%s", path.c_str());
         }
     }
@@ -101,7 +96,6 @@ public:
 
     void DrawNodeRecursive(int nodeIdx, Matrix parentTransform) {
         auto& node = model.nodes[nodeIdx];
-        
         Matrix local = MatrixIdentity();
         if (node.scale.size() == 3) local = MatrixMultiply(local, MatrixScale((float)node.scale[0], (float)node.scale[1], (float)node.scale[2]));
         if (node.rotation.size() == 4) local = MatrixMultiply(local, QuaternionToMatrix({ (float)node.rotation[0], (float)node.rotation[1], (float)node.rotation[2], (float)node.rotation[3] }));
@@ -111,7 +105,7 @@ public:
         Vector3 pos = { global.m12, global.m13, global.m14 };
         Vector3 pPos = { parentTransform.m12, parentTransform.m13, parentTransform.m14 };
 
-        if (nodeIdx != model.scenes[0].nodes[0]) DrawLine3D(pPos, pos, GRAY);
+        if (!model.scenes[0].nodes.empty() && nodeIdx != model.scenes[0].nodes[0]) DrawLine3D(pPos, pos, GRAY);
         
         bool isSelected = (selectedTrack >= 0 && tracks[selectedTrack].nodeIndex == nodeIdx);
         DrawSphere(pos, isSelected ? 0.12f : 0.04f, isSelected ? YELLOW : MAROON);
@@ -119,8 +113,13 @@ public:
         if (isSelected) {
             ImGuizmo::SetRect(0, 0, (float)GetScreenWidth(), (float)GetScreenHeight());
             float view[16], proj[16], matrix[16];
+            
+            // FIX: Modern Raylib Camera Matrix calls
             Matrix matView = GetCameraMatrix(camera);
-            Matrix matProj = GetCameraProjectionMatrix(&camera, (float)GetScreenWidth() / (float)GetScreenHeight());
+            
+            // We use the aspect ratio calculation directly
+            float aspect = (float)GetScreenWidth() / (float)GetScreenHeight();
+            Matrix matProj = MatrixPerspective(camera.fovy * DEG2RAD, aspect, 0.01f, 1000.0f);
             
             memcpy(view, &matView, 16 * sizeof(float));
             memcpy(proj, &matProj, 16 * sizeof(float));
@@ -146,12 +145,9 @@ public:
     }
 
     void Update() {
-        // --- Drag and Drop Logic ---
         if (IsFileDropped()) {
             FilePathList droppedFiles = LoadDroppedFiles();
-            if (droppedFiles.count > 0) {
-                LoadUniversal(droppedFiles.paths[0]);
-            }
+            if (droppedFiles.count > 0) LoadUniversal(droppedFiles.paths[0]);
             UnloadDroppedFiles(droppedFiles);
         }
 
@@ -177,30 +173,22 @@ public:
         BeginMode3D(camera);
             DrawGrid(20, 1.0f);
             if (!model.scenes.empty() && !model.nodes.empty()) {
-                for (int rootNode : model.scenes[0].nodes) {
-                    DrawNodeRecursive(rootNode, MatrixIdentity());
-                }
+                for (int rootNode : model.scenes[0].nodes) DrawNodeRecursive(rootNode, MatrixIdentity());
             }
         EndMode3D();
 
         rlImGuiBegin();
         ImGuizmo::BeginFrame();
         ImGui::Begin("Universal VertexEngine");
-            ImGui::Text("Drag & Drop a .glb file onto the window!");
-            ImGui::InputText("Current Model", loadPath, 256);
-            if (ImGui::Button("RELOAD")) LoadUniversal(loadPath);
-            ImGui::SameLine();
+            ImGui::Text("Drag & Drop a .glb file!");
+            ImGui::InputText("Model", loadPath, 256);
             if (ImGui::Button("SAVE ANIM")) SaveAnimUniversal("export.anim");
-            
             ImGui::Separator();
             if (ImGui::RadioButton("Translate", currentOp == ImGuizmo::TRANSLATE)) currentOp = ImGuizmo::TRANSLATE;
             ImGui::SameLine();
             if (ImGui::RadioButton("Rotate", currentOp == ImGuizmo::ROTATE)) currentOp = ImGuizmo::ROTATE;
-            
             ImGui::SliderFloat("Time", &currentTime, 0.0f, 10.0f);
             ImGui::Checkbox("Play Preview", &isPlaying);
-            
-            ImGui::Text("Hierarchy:");
             ImGui::BeginChild("NodesList", ImVec2(0, 0), true);
                 for (int i = 0; i < (int)tracks.size(); i++) {
                     if (ImGui::Selectable(tracks[i].name.c_str(), selectedTrack == i)) selectedTrack = i;
