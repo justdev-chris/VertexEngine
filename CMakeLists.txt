@@ -28,10 +28,10 @@ FetchContent_Declare(imguizmo
     GIT_TAG        master
 )
 
-# 4. Fetch TinyGLTF (The missing piece)
+# 4. Fetch TinyGLTF (Corrected branch name)
 FetchContent_Declare(tinygltf
     GIT_REPOSITORY https://github.com/syoyo/tinygltf.git
-    GIT_TAG        master
+    GIT_TAG        release
 )
 
 FetchContent_MakeAvailable(raylib imgui imguizmo tinygltf)
