@@ -28,17 +28,23 @@ FetchContent_Declare(imguizmo
     GIT_TAG        master
 )
 
-# 4. Fetch TinyGLTF (Corrected branch name)
+# 4. Fetch TinyGLTF
 FetchContent_Declare(tinygltf
     GIT_REPOSITORY https://github.com/syoyo/tinygltf.git
     GIT_TAG        release
 )
 
-FetchContent_MakeAvailable(raylib imgui imguizmo tinygltf)
+# 5. Fetch rlImGui (The missing glue code)
+FetchContent_Declare(rlImGui
+    GIT_REPOSITORY https://github.com/raylib-extras/rlImGui.git
+    GIT_TAG        main
+)
+
+FetchContent_MakeAvailable(raylib imgui imguizmo tinygltf rlImGui)
 
 add_executable(VertexEngine src/main.cpp)
 
-# Define source files for dependencies that aren't header-only
+# Define source files for dependencies
 target_sources(VertexEngine PRIVATE
     ${imgui_SOURCE_DIR}/imgui.cpp
     ${imgui_SOURCE_DIR}/imgui_draw.cpp
@@ -46,6 +52,7 @@ target_sources(VertexEngine PRIVATE
     ${imgui_SOURCE_DIR}/imgui_tables.cpp
     ${imgui_SOURCE_DIR}/imgui_demo.cpp
     ${imguizmo_SOURCE_DIR}/ImGuizmo.cpp
+    ${rlimgui_SOURCE_DIR}/rlImGui.cpp  # Compile the glue code
 )
 
 # Universal Include Paths
@@ -56,9 +63,10 @@ target_include_directories(VertexEngine PRIVATE
     ${imguizmo_SOURCE_DIR}
     ${tinygltf_SOURCE_DIR}
     ${raylib_SOURCE_DIR}/src
+    ${rlimgui_SOURCE_DIR}             # Path to rlImGui.h
 )
 
-# Link Raylib (handles its own dependencies)
+# Link Raylib
 target_link_libraries(VertexEngine PRIVATE raylib)
 
 # Windows System Libraries
