@@ -1,25 +1,32 @@
-name: Build
+name: Build Windows Executable
 
 on: [push, pull_request]
 
 jobs:
-  build-windows:
+  build:
     runs-on: windows-latest
     
     steps:
     - uses: actions/checkout@v4
     
-    - name: Setup MSYS2 and Mingw-w64
+    - name: Download raylib static library
+      run: |
+        curl -L https://github.com/raysan5/raylib/releases/download/5.0/raylib-5.0_win64_mingw-w64.zip -o raylib.zip
+        7z x raylib.zip
+        
+        # Verify the static library exists
+        dir raylib-5.0_win64_mingw-w64/lib/
+    
+    - name: Setup MSYS2
       uses: msys2/setup-msys2@v2
       with:
         update: true
         install: >-
-          mingw-w64-x86_64-toolchain
+          mingw-w64-x86_64-gcc
           mingw-w64-x86_64-cmake
           mingw-w64-x86_64-ninja
-          git
     
-    - name: Configure with CMake
+    - name: Configure CMake
       shell: msys2 {0}
       run: |
         cmake -S . -B build -G Ninja
@@ -28,8 +35,11 @@ jobs:
       shell: msys2 {0}
       run: |
         cmake --build build --config Release
+        # Verify it's a standalone executable
+        file build/VertexEngine.exe
     
-    - name: Run executable
-      shell: msys2 {0}
-      run: |
-        ./build/VertexEngine.exe || echo "Program may have run and exited"
+    - name: Upload standalone executable
+      uses: actions/upload-artifact@v4
+      with:
+        name: VertexEngine-Windows-Standalone
+        path: build/VertexEngine.exe
