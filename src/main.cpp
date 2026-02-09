@@ -1,8 +1,19 @@
+// 1. STB and TinyGLTF configuration
 #define TINYGLTF_IMPLEMENTATION
 #define STB_IMAGE_IMPLEMENTATION
 #define STB_IMAGE_WRITE_IMPLEMENTATION
+
+// 2. The Conflict Killer Guards (Solves the "Rectangle" and "CloseWindow" errors)
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#define NOGDI             
+#define NOUSER            
+#define TINYGLTF_NO_EXTERNAL_JSON
+
 #include "tiny_gltf.h"
 
+// 3. Raylib & UI Includes
 #include "raylib.h"
 #include "raymath.h"
 #include "imgui.h"
@@ -14,7 +25,6 @@
 #include <fstream>
 #include <algorithm>
 
-// --- Data Structures ---
 struct Keyframe {
     float time;
     Vector3 translation;
@@ -39,22 +49,33 @@ public:
     ImGuizmo::OPERATION currentOp = ImGuizmo::ROTATE;
 
     void Init() {
-        InitWindow(1280, 720, "VertexEngine | FULL UNIVERSAL");
+        InitWindow(1280, 720, "VertexEngine | Drag & Drop Universal");
         rlImGuiSetup(true);
-        camera = {(Vector3){5.0f, 5.0f, 5.0f}, (Vector3){0.0f, 0.0f, 0.0f}, (Vector3){0.0f, 1.0f, 0.0f}, 45.0f, 0};
+        camera = { (Vector3){5.0f, 5.0f, 5.0f}, (Vector3){0.0f, 0.0f, 0.0f}, (Vector3){0.0f, 1.0f, 0.0f}, 45.0f, 0 };
         SetTargetFPS(60);
     }
 
     void LoadUniversal(const std::string& path) {
         tinygltf::TinyGLTF loader;
         std::string err, warn;
-        if (loader.LoadBinaryFromFile(&model, &err, &warn, path)) {
+        bool success = false;
+
+        // Determine if it's ASCII (.gltf) or Binary (.glb)
+        if (path.substr(path.find_last_of(".") + 1) == "glb") {
+            success = loader.LoadBinaryFromFile(&model, &err, &warn, path);
+        } else {
+            success = loader.LoadASCIIFromFile(&model, &err, &warn, path);
+        }
+
+        if (success) {
             tracks.clear();
             selectedTrack = -1;
             for (int i = 0; i < (int)model.nodes.size(); i++) {
                 std::string bName = model.nodes[i].name.empty() ? ("Node_" + std::to_string(i)) : model.nodes[i].name;
-                tracks.push_back({bName, i, {}});
+                tracks.push_back({ bName, i, {} });
             }
+            // Update the text box to show what we loaded
+            snprintf(loadPath, sizeof(loadPath), "%s", path.c_str());
         }
     }
 
@@ -83,12 +104,12 @@ public:
         
         Matrix local = MatrixIdentity();
         if (node.scale.size() == 3) local = MatrixMultiply(local, MatrixScale((float)node.scale[0], (float)node.scale[1], (float)node.scale[2]));
-        if (node.rotation.size() == 4) local = MatrixMultiply(local, QuaternionToMatrix({(float)node.rotation[0], (float)node.rotation[1], (float)node.rotation[2], (float)node.rotation[3]}));
+        if (node.rotation.size() == 4) local = MatrixMultiply(local, QuaternionToMatrix({ (float)node.rotation[0], (float)node.rotation[1], (float)node.rotation[2], (float)node.rotation[3] }));
         if (node.translation.size() == 3) local = MatrixMultiply(local, MatrixTranslate((float)node.translation[0], (float)node.translation[1], (float)node.translation[2]));
         
         Matrix global = MatrixMultiply(local, parentTransform);
-        Vector3 pos = {global.m12, global.m13, global.m14};
-        Vector3 pPos = {parentTransform.m12, parentTransform.m13, parentTransform.m14};
+        Vector3 pos = { global.m12, global.m13, global.m14 };
+        Vector3 pPos = { parentTransform.m12, parentTransform.m13, parentTransform.m14 };
 
         if (nodeIdx != model.scenes[0].nodes[0]) DrawLine3D(pPos, pos, GRAY);
         
@@ -115,16 +136,25 @@ public:
                 float t[3], r[3], s[3];
                 ImGuizmo::DecomposeMatrixToComponents(localArr, t, r, s);
 
-                node.translation = {(double)t[0], (double)t[1], (double)t[2]};
+                node.translation = { (double)t[0], (double)t[1], (double)t[2] };
                 Quaternion q = QuaternionFromEuler(r[0] * DEG2RAD, r[1] * DEG2RAD, r[2] * DEG2RAD);
-                node.rotation = {(double)q.x, (double)q.y, (double)q.z, (double)q.w};
-                node.scale = {(double)s[0], (double)s[1], (double)s[2]};
+                node.rotation = { (double)q.x, (double)q.y, (double)q.z, (double)q.w };
+                node.scale = { (double)s[0], (double)s[1], (double)s[2] };
             }
         }
         for (int child : node.children) DrawNodeRecursive(child, global);
     }
 
     void Update() {
+        // --- Drag and Drop Logic ---
+        if (IsFileDropped()) {
+            FilePathList droppedFiles = LoadDroppedFiles();
+            if (droppedFiles.count > 0) {
+                LoadUniversal(droppedFiles.paths[0]);
+            }
+            UnloadDroppedFiles(droppedFiles);
+        }
+
         if (!ImGuizmo::IsUsing()) UpdateCamera(&camera, CAMERA_ORBITAL);
         
         if (isPlaying) {
@@ -134,16 +164,16 @@ public:
 
         if (IsKeyPressed(KEY_K) && selectedTrack != -1) {
             auto& n = model.nodes[tracks[selectedTrack].nodeIndex];
-            Vector3 t = (n.translation.size() == 3) ? (Vector3){(float)n.translation[0], (float)n.translation[1], (float)n.translation[2]} : Vector3Zero();
-            Quaternion r = (n.rotation.size() == 4) ? (Quaternion){(float)n.rotation[0], (float)n.rotation[1], (float)n.rotation[2], (float)n.rotation[3]} : QuaternionIdentity();
-            tracks[selectedTrack].keys.push_back({currentTime, t, r});
+            Vector3 t = (n.translation.size() == 3) ? (Vector3){ (float)n.translation[0], (float)n.translation[1], (float)n.translation[2] } : Vector3Zero();
+            Quaternion r = (n.rotation.size() == 4) ? (Quaternion){ (float)n.rotation[0], (float)n.rotation[1], (float)n.rotation[2], (float)n.rotation[3] } : QuaternionIdentity();
+            tracks[selectedTrack].keys.push_back({ currentTime, t, r });
             std::sort(tracks[selectedTrack].keys.begin(), tracks[selectedTrack].keys.end(), [](const Keyframe& a, const Keyframe& b) { return a.time < b.time; });
         }
     }
 
     void Render() {
         BeginDrawing();
-        ClearBackground((Color){30, 30, 30, 255});
+        ClearBackground((Color){ 30, 30, 30, 255 });
         BeginMode3D(camera);
             DrawGrid(20, 1.0f);
             if (!model.scenes.empty() && !model.nodes.empty()) {
@@ -156,8 +186,9 @@ public:
         rlImGuiBegin();
         ImGuizmo::BeginFrame();
         ImGui::Begin("Universal VertexEngine");
-            ImGui::InputText("Model Path", loadPath, 256);
-            if (ImGui::Button("LOAD GLB")) LoadUniversal(loadPath);
+            ImGui::Text("Drag & Drop a .glb file onto the window!");
+            ImGui::InputText("Current Model", loadPath, 256);
+            if (ImGui::Button("RELOAD")) LoadUniversal(loadPath);
             ImGui::SameLine();
             if (ImGui::Button("SAVE ANIM")) SaveAnimUniversal("export.anim");
             
@@ -169,13 +200,9 @@ public:
             ImGui::SliderFloat("Time", &currentTime, 0.0f, 10.0f);
             ImGui::Checkbox("Play Preview", &isPlaying);
             
-            if (ImGui::Button("Add Keyframe (K)")) {
-                // Trigger keyframe logic via UI
-            }
-
             ImGui::Text("Hierarchy:");
             ImGui::BeginChild("NodesList", ImVec2(0, 0), true);
-                for(int i = 0; i < (int)tracks.size(); i++) {
+                for (int i = 0; i < (int)tracks.size(); i++) {
                     if (ImGui::Selectable(tracks[i].name.c_str(), selectedTrack == i)) selectedTrack = i;
                 }
             ImGui::EndChild();
