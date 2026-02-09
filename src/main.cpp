@@ -1,22 +1,24 @@
-// 1. STB and TinyGLTF configuration
+// 1. TinyGLTF Configuration - Prevent duplicate STB symbols
 #define TINYGLTF_IMPLEMENTATION
-#define STB_IMAGE_IMPLEMENTATION
-#define STB_IMAGE_WRITE_IMPLEMENTATION
+#define TINYGLTF_NO_STB_IMAGE
+#define TINYGLTF_NO_STB_IMAGE_WRITE
+#define TINYGLTF_NO_EXTERNAL_JSON
 
-// 2. The Conflict Killer Guards
+// 2. Windows Conflict Killers
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
-#define NOGDI             
-#define NOUSER            
-#define TINYGLTF_NO_EXTERNAL_JSON
+#define NOGDI
+#define NOUSER
 
 #include "tiny_gltf.h"
 
-// 3. Raylib & UI Includes
+// 3. Raylib & Math
 #include "raylib.h"
 #include "raymath.h"
-#include "rlgl.h"      // Added for matrix and rendering internals
+#include "rlgl.h"
+
+// 4. UI Wrappers
 #include "imgui.h"
 #include "rlImGui.h"
 #include "ImGuizmo.h"
@@ -50,7 +52,7 @@ public:
     ImGuizmo::OPERATION currentOp = ImGuizmo::ROTATE;
 
     void Init() {
-        InitWindow(1280, 720, "VertexEngine | Drag & Drop Universal");
+        InitWindow(1280, 720, "VertexEngine | Universal Animator");
         rlImGuiSetup(true);
         camera = { (Vector3){5.0f, 5.0f, 5.0f}, (Vector3){0.0f, 0.0f, 0.0f}, (Vector3){0.0f, 1.0f, 0.0f}, 45.0f, CAMERA_PERSPECTIVE };
         SetTargetFPS(60);
@@ -59,9 +61,13 @@ public:
     void LoadUniversal(const std::string& path) {
         tinygltf::TinyGLTF loader;
         std::string err, warn;
-        bool success = (path.substr(path.find_last_of(".") + 1) == "glb") ? 
-                        loader.LoadBinaryFromFile(&model, &err, &warn, path) : 
-                        loader.LoadASCIIFromFile(&model, &err, &warn, path);
+        bool success = false;
+        
+        if (path.find(".glb") != std::string::npos) {
+            success = loader.LoadBinaryFromFile(&model, &err, &warn, path);
+        } else {
+            success = loader.LoadASCIIFromFile(&model, &err, &warn, path);
+        }
 
         if (success) {
             tracks.clear();
@@ -91,12 +97,12 @@ public:
             file << "    ] }" << (i < tracks.size() - 1 ? "," : "") << "\n";
         }
         file << "  ]\n}";
-        file.close();
     }
 
     void DrawNodeRecursive(int nodeIdx, Matrix parentTransform) {
         auto& node = model.nodes[nodeIdx];
         Matrix local = MatrixIdentity();
+        
         if (node.scale.size() == 3) local = MatrixMultiply(local, MatrixScale((float)node.scale[0], (float)node.scale[1], (float)node.scale[2]));
         if (node.rotation.size() == 4) local = MatrixMultiply(local, QuaternionToMatrix({ (float)node.rotation[0], (float)node.rotation[1], (float)node.rotation[2], (float)node.rotation[3] }));
         if (node.translation.size() == 3) local = MatrixMultiply(local, MatrixTranslate((float)node.translation[0], (float)node.translation[1], (float)node.translation[2]));
@@ -114,10 +120,7 @@ public:
             ImGuizmo::SetRect(0, 0, (float)GetScreenWidth(), (float)GetScreenHeight());
             float view[16], proj[16], matrix[16];
             
-            // FIX: Modern Raylib Camera Matrix calls
             Matrix matView = GetCameraMatrix(camera);
-            
-            // We use the aspect ratio calculation directly
             float aspect = (float)GetScreenWidth() / (float)GetScreenHeight();
             Matrix matProj = MatrixPerspective(camera.fovy * DEG2RAD, aspect, 0.01f, 1000.0f);
             
@@ -169,7 +172,7 @@ public:
 
     void Render() {
         BeginDrawing();
-        ClearBackground((Color){ 30, 30, 30, 255 });
+        ClearBackground((Color){ 20, 20, 20, 255 });
         BeginMode3D(camera);
             DrawGrid(20, 1.0f);
             if (!model.scenes.empty() && !model.nodes.empty()) {
@@ -179,17 +182,16 @@ public:
 
         rlImGuiBegin();
         ImGuizmo::BeginFrame();
-        ImGui::Begin("Universal VertexEngine");
-            ImGui::Text("Drag & Drop a .glb file!");
-            ImGui::InputText("Model", loadPath, 256);
-            if (ImGui::Button("SAVE ANIM")) SaveAnimUniversal("export.anim");
+        ImGui::Begin("VertexEngine");
+            ImGui::Text("Drop .glb to Load");
             ImGui::Separator();
+            if (ImGui::Button("Save Animation")) SaveAnimUniversal("export.anim");
             if (ImGui::RadioButton("Translate", currentOp == ImGuizmo::TRANSLATE)) currentOp = ImGuizmo::TRANSLATE;
             ImGui::SameLine();
             if (ImGui::RadioButton("Rotate", currentOp == ImGuizmo::ROTATE)) currentOp = ImGuizmo::ROTATE;
-            ImGui::SliderFloat("Time", &currentTime, 0.0f, 10.0f);
-            ImGui::Checkbox("Play Preview", &isPlaying);
-            ImGui::BeginChild("NodesList", ImVec2(0, 0), true);
+            ImGui::SliderFloat("Timeline", &currentTime, 0.0f, 10.0f);
+            ImGui::Checkbox("Preview", &isPlaying);
+            ImGui::BeginChild("Hierarchy", ImVec2(0, 0), true);
                 for (int i = 0; i < (int)tracks.size(); i++) {
                     if (ImGui::Selectable(tracks[i].name.c_str(), selectedTrack == i)) selectedTrack = i;
                 }
