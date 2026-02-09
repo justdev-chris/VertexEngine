@@ -1,0 +1,27 @@
+name: Build VertexEngine
+
+on: [push]
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Cpp
+        uses: aminya/setup-cpp@v1
+        with:
+          compiler: gcc
+          cmake: true
+          ninja: true
+
+      - name: Build
+        run: |
+          cmake -S . -B build -G Ninja
+          cmake --build build
+
+      - name: Upload EXE
+        uses: actions/upload-artifact@v4
+        with:
+          name: VertexEngine-Build
+          path: build/VertexEngine.exe
