@@ -1,27 +1,39 @@
-name: Build VertexEngine
+name: VertexEngine Build
 
-on: [push]
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
 
 jobs:
-  build:
+  build-windows:
     runs-on: windows-latest
+
     steps:
-      - uses: actions/checkout@v4
-      
-      - name: Setup Cpp
-        uses: aminya/setup-cpp@v1
-        with:
-          compiler: gcc
-          cmake: true
-          ninja: true
+    - name: Checkout Code
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
 
-      - name: Build
-        run: |
-          cmake -S . -B build -G Ninja
-          cmake --build build
+    - name: Setup Ninja
+      uses: seanmiddleditch/setup-ninja@v4
 
-      - name: Upload EXE
-        uses: actions/upload-artifact@v4
-        with:
-          name: VertexEngine-Build
-          path: build/VertexEngine.exe
+    - name: Setup GCC (MinGW)
+      uses: egor-tensin/setup-gcc@v1
+      with:
+        ver: 13 # Stable version for Raylib/ImGui compatibility
+
+    - name: Configure CMake
+      # This runs the CMakeLists.txt and fetches Raylib/ImGui/ImGuizmo
+      run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+    - name: Build Engine
+      # This compiles the full main.cpp and dependencies
+      run: cmake --build build --config Release
+
+    - name: Upload Build Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: VertexEngine-Windows
+        path: build/VertexEngine.exe
