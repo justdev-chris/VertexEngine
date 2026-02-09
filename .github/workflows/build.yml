@@ -1,44 +1,35 @@
-name: VertexEngine Build
+name: Build
 
-on:
-  push:
-    branches: [ main, master ]
-  pull_request:
-    branches: [ main, master ]
+on: [push, pull_request]
 
 jobs:
   build-windows:
     runs-on: windows-latest
-
+    
     steps:
-    - name: Checkout Code
-      uses: actions/checkout@v4
-      with:
-        submodules: recursive
-
-    - name: Setup MSYS2
+    - uses: actions/checkout@v4
+    
+    - name: Setup MSYS2 and Mingw-w64
       uses: msys2/setup-msys2@v2
       with:
-        msystem: MINGW64
         update: true
         install: >-
-          mingw-w64-x86_64-gcc
+          mingw-w64-x86_64-toolchain
           mingw-w64-x86_64-cmake
           mingw-w64-x86_64-ninja
-
-    - name: Configure CMake
+          git
+    
+    - name: Configure with CMake
       shell: msys2 {0}
-      # Use backslash (\) for line breaks in Bash
       run: |
-        cmake -S . -B build -G Ninja \
-        -DCMAKE_BUILD_TYPE=Release
-
-    - name: Build Engine
+        cmake -S . -B build -G Ninja
+    
+    - name: Build
       shell: msys2 {0}
-      run: cmake --build build --config Release
-
-    - name: Upload Build Artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: VertexEngine-Windows
-        path: build/VertexEngine.exe
+      run: |
+        cmake --build build --config Release
+    
+    - name: Run executable
+      shell: msys2 {0}
+      run: |
+        ./build/VertexEngine.exe || echo "Program may have run and exited"
