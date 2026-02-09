@@ -1,75 +1,49 @@
-cmake_minimum_required(VERSION 3.16)
-project(VertexEngine CXX)
+cmake_minimum_required(VERSION 3.12)
+project(VertexEngine)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-if(NOT CMAKE_BUILD_TYPE)
-  set(CMAKE_BUILD_TYPE Release)
-endif()
-
+# Download dependencies
 include(FetchContent)
 
-# 1. Fetch Raylib
-FetchContent_Declare(raylib
-    GIT_REPOSITORY https://github.com/raysan5/raylib.git
-    GIT_TAG        master
-)
+FetchContent_Declare(raylib URL https://github.com/raysan5/raylib/archive/master.tar.gz)
+FetchContent_Declare(imgui URL https://github.com/ocornut/imgui/archive/master.tar.gz)
+FetchContent_Declare(rlimgui URL https://github.com/raylib-extras/rlImGui/archive/main.tar.gz)
+FetchContent_Declare(imguizmo URL https://github.com/CedricGuillemet/ImGuizmo/archive/master.tar.gz)
+FetchContent_Declare(tinygltf URL https://github.com/syoyo/tinygltf/archive/master.tar.gz)
 
-# 2. Fetch ImGui
-FetchContent_Declare(imgui
-    GIT_REPOSITORY https://github.com/ocornut/imgui.git
-    GIT_TAG        master
-)
+FetchContent_MakeAvailable(raylib imgui rlimgui imguizmo tinygltf)
 
-# 3. Fetch ImGuizmo
-FetchContent_Declare(imguizmo
-    GIT_REPOSITORY https://github.com/CedricGuillemet/ImGuizmo.git
-    GIT_TAG        master
-)
-
-# 4. Fetch TinyGLTF
-FetchContent_Declare(tinygltf
-    GIT_REPOSITORY https://github.com/syoyo/tinygltf.git
-    GIT_TAG        release
-)
-
-# 5. Fetch rlImGui (The missing glue code)
-FetchContent_Declare(rlImGui
-    GIT_REPOSITORY https://github.com/raylib-extras/rlImGui.git
-    GIT_TAG        main
-)
-
-FetchContent_MakeAvailable(raylib imgui imguizmo tinygltf rlImGui)
-
+# Define our executable
 add_executable(VertexEngine src/main.cpp)
 
-# Define source files for dependencies
-target_sources(VertexEngine PRIVATE
-    ${imgui_SOURCE_DIR}/imgui.cpp
-    ${imgui_SOURCE_DIR}/imgui_draw.cpp
-    ${imgui_SOURCE_DIR}/imgui_widgets.cpp
-    ${imgui_SOURCE_DIR}/imgui_tables.cpp
-    ${imgui_SOURCE_DIR}/imgui_demo.cpp
-    ${imguizmo_SOURCE_DIR}/ImGuizmo.cpp
-    ${rlimgui_SOURCE_DIR}/rlImGui.cpp  # Compile the glue code
-)
-
-# Universal Include Paths
+# Header include paths
 target_include_directories(VertexEngine PRIVATE 
-    include 
+    include
     ${imgui_SOURCE_DIR}
     ${imgui_SOURCE_DIR}/backends
     ${imguizmo_SOURCE_DIR}
     ${tinygltf_SOURCE_DIR}
     ${raylib_SOURCE_DIR}/src
-    ${rlimgui_SOURCE_DIR}             # Path to rlImGui.h
+    ${rlimgui_SOURCE_DIR}
 )
 
-# Link Raylib
-target_link_libraries(VertexEngine PRIVATE raylib)
+# Link everything together
+# Order matters: Raylib should be near the end to provide symbols for wrappers
+target_link_libraries(VertexEngine PRIVATE 
+    rlImGui
+    imguizmo
+    raylib
+    winmm
+    gdi32
+    opengl32
+    shell32
+)
 
-# Windows System Libraries
-if(WIN32)
-    target_link_libraries(VertexEngine PRIVATE winmm gdi32 opengl32 shell32)
+# Build configurations for Windows
+if(MSVC)
+    target_compile_options(VertexEngine PRIVATE /W4)
+else()
+    target_compile_options(VertexEngine PRIVATE -Wall -O3)
 endif()
