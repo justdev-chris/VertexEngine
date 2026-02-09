@@ -16,14 +16,15 @@ jobs:
       with:
         submodules: recursive
 
-    - name: Setup GCC (MinGW)
-      uses: egor-tensin/setup-gcc@v1
+    - name: Setup MinGW (GCC)
+      # This is the specific action GitHub requested in your error log
+      uses: egor-tensin/setup-mingw@v2
       with:
-        ver: 13
+        platform: x64
+        version: 13.2.0
 
     - name: Configure CMake
-      # Ninja is pre-installed on windows-latest runners. 
-      # We just need to point to the right compilers.
+      # Ninja is pre-installed; we just point to the MinGW compilers
       run: |
         cmake -S . -B build -G Ninja `
         -DCMAKE_C_COMPILER=gcc `
