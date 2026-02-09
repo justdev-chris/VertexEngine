@@ -2,11 +2,13 @@
 #define STB_IMAGE_IMPLEMENTATION
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "tiny_gltf.h"
+
 #include "raylib.h"
 #include "raymath.h"
-#include "rlImGui.h"
 #include "imgui.h"
+#include "rlImGui.h"
 #include "ImGuizmo.h"
+
 #include <vector>
 #include <string>
 #include <fstream>
@@ -79,7 +81,6 @@ public:
     void DrawNodeRecursive(int nodeIdx, Matrix parentTransform) {
         auto& node = model.nodes[nodeIdx];
         
-        // Build local transform from glTF data
         Matrix local = MatrixIdentity();
         if (node.scale.size() == 3) local = MatrixMultiply(local, MatrixScale((float)node.scale[0], (float)node.scale[1], (float)node.scale[2]));
         if (node.rotation.size() == 4) local = MatrixMultiply(local, QuaternionToMatrix({(float)node.rotation[0], (float)node.rotation[1], (float)node.rotation[2], (float)node.rotation[3]}));
@@ -89,7 +90,6 @@ public:
         Vector3 pos = {global.m12, global.m13, global.m14};
         Vector3 pPos = {parentTransform.m12, parentTransform.m13, parentTransform.m14};
 
-        // Visual Bone Connection
         if (nodeIdx != model.scenes[0].nodes[0]) DrawLine3D(pPos, pos, GRAY);
         
         bool isSelected = (selectedTrack >= 0 && tracks[selectedTrack].nodeIndex == nodeIdx);
@@ -99,14 +99,13 @@ public:
             ImGuizmo::SetRect(0, 0, (float)GetScreenWidth(), (float)GetScreenHeight());
             float view[16], proj[16], matrix[16];
             Matrix matView = GetCameraMatrix(camera);
-            Matrix matProj = GetCameraProjectionMatrix(&camera, (float)GetScreenWidth() / GetScreenHeight());
+            Matrix matProj = GetCameraProjectionMatrix(&camera, (float)GetScreenWidth() / (float)GetScreenHeight());
             
             memcpy(view, &matView, 16 * sizeof(float));
             memcpy(proj, &matProj, 16 * sizeof(float));
             memcpy(matrix, &global, 16 * sizeof(float));
 
             if (ImGuizmo::Manipulate(view, proj, currentOp, ImGuizmo::WORLD, matrix)) {
-                // FULL WORLD-TO-LOCAL MATH
                 Matrix newWorld = *(Matrix*)matrix;
                 Matrix parentInverse = MatrixInvert(parentTransform);
                 Matrix newLocal = MatrixMultiply(newWorld, parentInverse);
@@ -147,15 +146,21 @@ public:
         ClearBackground((Color){30, 30, 30, 255});
         BeginMode3D(camera);
             DrawGrid(20, 1.0f);
-            if (!model.scenes.empty()) DrawNodeRecursive(model.scenes[0].nodes[0], MatrixIdentity());
+            if (!model.scenes.empty() && !model.nodes.empty()) {
+                for (int rootNode : model.scenes[0].nodes) {
+                    DrawNodeRecursive(rootNode, MatrixIdentity());
+                }
+            }
         EndMode3D();
 
         rlImGuiBegin();
         ImGuizmo::BeginFrame();
-        ImGui::Begin("Universal VertexEngine Control");
+        ImGui::Begin("Universal VertexEngine");
             ImGui::InputText("Model Path", loadPath, 256);
             if (ImGui::Button("LOAD GLB")) LoadUniversal(loadPath);
+            ImGui::SameLine();
             if (ImGui::Button("SAVE ANIM")) SaveAnimUniversal("export.anim");
+            
             ImGui::Separator();
             if (ImGui::RadioButton("Translate", currentOp == ImGuizmo::TRANSLATE)) currentOp = ImGuizmo::TRANSLATE;
             ImGui::SameLine();
@@ -164,7 +169,11 @@ public:
             ImGui::SliderFloat("Time", &currentTime, 0.0f, 10.0f);
             ImGui::Checkbox("Play Preview", &isPlaying);
             
-            ImGui::Text("Nodes Hierarchy:");
+            if (ImGui::Button("Add Keyframe (K)")) {
+                // Trigger keyframe logic via UI
+            }
+
+            ImGui::Text("Hierarchy:");
             ImGui::BeginChild("NodesList", ImVec2(0, 0), true);
                 for(int i = 0; i < (int)tracks.size(); i++) {
                     if (ImGui::Selectable(tracks[i].name.c_str(), selectedTrack == i)) selectedTrack = i;
