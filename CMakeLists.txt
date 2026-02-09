@@ -2,42 +2,46 @@ cmake_minimum_required(VERSION 3.15)
 project(VertexEngine)
 
 set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Just use system-installed raylib or skip rlImGui temporarily
-find_library(RAYLIB_LIB raylib)
-find_path(RAYLIB_INCLUDE raylib.h)
+# Skip all the complicated dependency stuff
+# Assume raylib is installed system-wide or in a known location
 
-if(RAYLIB_LIB AND RAYLIB_INCLUDE)
-    message(STATUS "Found raylib: ${RAYLIB_LIB}")
-else()
-    # Download raylib source and build it
-    include(FetchContent)
-    FetchContent_Declare(raylib
-        URL https://github.com/raysan5/raylib/archive/refs/tags/5.0.tar.gz
-    )
-    FetchContent_MakeAvailable(raylib)
+# Find raylib headers and library
+find_path(RAYLIB_INCLUDE_DIR raylib.h
+    PATHS
+    /usr/include
+    /usr/local/include
+    "C:/raylib/include"
+    "$ENV{RAYLIB_PATH}/include"
+)
+
+find_library(RAYLIB_LIBRARY
+    NAMES raylib
+    PATHS
+    /usr/lib
+    /usr/local/lib
+    "C:/raylib/lib"
+    "$ENV{RAYLIB_PATH}/lib"
+)
+
+if(NOT RAYLIB_INCLUDE_DIR OR NOT RAYLIB_LIBRARY)
+    message(FATAL_ERROR "Raylib not found! Please install raylib or set RAYLIB_PATH")
 endif()
+
+message(STATUS "Found raylib at: ${RAYLIB_LIBRARY}")
 
 # Create executable
 add_executable(VertexEngine src/main.cpp)
 
-# Include paths
-if(RAYLIB_INCLUDE)
-    target_include_directories(VertexEngine PRIVATE ${RAYLIB_INCLUDE} include)
-else()
-    target_include_directories(VertexEngine PRIVATE ${raylib_SOURCE_DIR}/src include)
-endif()
+# Include directories
+target_include_directories(VertexEngine PRIVATE
+    include
+    ${RAYLIB_INCLUDE_DIR}
+)
 
 # Link libraries
-if(RAYLIB_LIB)
-    target_link_libraries(VertexEngine PRIVATE ${RAYLIB_LIB})
-else()
-    target_link_libraries(VertexEngine PRIVATE raylib)
-endif()
-
-# Add Windows libraries
 target_link_libraries(VertexEngine PRIVATE
+    ${RAYLIB_LIBRARY}
     winmm
     gdi32
     opengl32
