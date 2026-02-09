@@ -9,13 +9,33 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     
-    - name: Download raylib static library
+    - name: Download ALL dependencies
+      shell: powershell
       run: |
-        curl -L https://github.com/raysan5/raylib/releases/download/5.0/raylib-5.0_win64_mingw-w64.zip -o raylib.zip
-        7z x raylib.zip
+        # Download raylib
+        Invoke-WebRequest -Uri "https://github.com/raysan5/raylib/releases/download/5.0/raylib-5.0_win64_mingw-w64.zip" -OutFile "raylib.zip"
+        Expand-Archive -Path "raylib.zip" -DestinationPath "." -Force
         
-        # Verify the static library exists
-        dir raylib-5.0_win64_mingw-w64/lib/
+        # Download tinygltf
+        Invoke-WebRequest -Uri "https://raw.githubusercontent.com/syoyo/tinygltf/master/tiny_gltf.h" -OutFile "tiny_gltf.h"
+        Invoke-WebRequest -Uri "https://raw.githubusercontent.com/nlohmann/json/develop/single_include/nlohmann/json.hpp" -OutFile "json.hpp"
+        Invoke-WebRequest -Uri "https://raw.githubusercontent.com/nothings/stb/master/stb_image.h" -OutFile "stb_image.h"
+        
+        # Download ImGui
+        Invoke-WebRequest -Uri "https://raw.githubusercontent.com/ocornut/imgui/master/imgui.h" -OutFile "imgui.h"
+        Invoke-WebRequest -Uri "https://raw.githubusercontent.com/ocornut/imgui/master/imconfig.h" -OutFile "imconfig.h"
+        Invoke-WebRequest -Uri "https://raw.githubusercontent.com/ocornut/imgui/master/imgui.cpp" -OutFile "imgui.cpp"
+        
+        # Download ImGuizmo
+        Invoke-WebRequest -Uri "https://raw.githubusercontent.com/CedricGuillemet/ImGuizmo/master/ImGuizmo.h" -OutFile "ImGuizmo.h"
+        
+        # Download rlImGui
+        Invoke-WebRequest -Uri "https://raw.githubusercontent.com/raylib-extras/rlImGui/main/rlImGui.h" -OutFile "rlImGui.h"
+        Invoke-WebRequest -Uri "https://raw.githubusercontent.com/raylib-extras/rlImGui/main/rlImGui.cpp" -OutFile "rlImGui.cpp"
+        Invoke-WebRequest -Uri "https://raw.githubusercontent.com/raylib-extras/rlImGui/main/rlImGuiColors.cpp" -OutFile "rlImGuiColors.cpp"
+        
+        # List downloaded files
+        dir *.h *.cpp *.hpp
     
     - name: Setup MSYS2
       uses: msys2/setup-msys2@v2
@@ -26,20 +46,14 @@ jobs:
           mingw-w64-x86_64-cmake
           mingw-w64-x86_64-ninja
     
-    - name: Configure CMake
+    - name: Configure and Build
       shell: msys2 {0}
       run: |
         cmake -S . -B build -G Ninja
-    
-    - name: Build
-      shell: msys2 {0}
-      run: |
         cmake --build build --config Release
-        # Verify it's a standalone executable
-        file build/VertexEngine.exe
     
-    - name: Upload standalone executable
+    - name: Upload executable
       uses: actions/upload-artifact@v4
       with:
-        name: VertexEngine-Windows-Standalone
+        name: VertexEngine-Windows
         path: build/VertexEngine.exe
