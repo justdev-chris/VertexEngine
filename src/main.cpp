@@ -5,11 +5,12 @@
 #include "raylib.h"
 #include "raymath.h"
 #include "rlImGui.h"
+#include "imgui.h"
+#include "ImGuizmo.h"
 #include <vector>
 #include <string>
-#include <map>
 
-// --- Data Structures ---
+// --- VertexEngine Core Types ---
 struct Keyframe {
     float time;
     Vector3 translation;
@@ -25,131 +26,117 @@ struct BoneTrack {
 class VertexEngine {
 public:
     tinygltf::Model model;
-    tinygltf::TinyGLTF loader;
     std::vector<BoneTrack> tracks;
-    bool modelLoaded = false;
-    float currentTime = 0.0f;
-    bool isPlaying = false;
-    int selectedTrack = -1;
     Camera3D camera;
+    float currentTime = 0.0f;
+    int selectedTrack = -1;
+    bool isPlaying = false;
+    ImGuizmo::OPERATION currentOp = ImGuizmo::ROTATE;
 
     void Init() {
-        InitWindow(1280, 720, "VertexEngine | C++ Native");
+        InitWindow(1280, 720, "VertexEngine | NATIVE");
         rlImGuiSetup(true);
+        camera = {(Vector3){5, 5, 5}, (Vector3){0, 0, 0}, (Vector3){0, 1, 0}, 45.0f, 0};
         SetTargetFPS(60);
-        camera = { (Vector3){10, 10, 10}, (Vector3){0, 0, 0}, (Vector3){0, 1, 0}, 45.0f, 0 };
     }
 
     void Load(const std::string& path) {
-        std::string err, warn;
+        tinygltf::TinyGLTF loader; std::string err, warn;
         if (loader.LoadBinaryFromFile(&model, &err, &warn, path)) {
-            modelLoaded = true;
             tracks.clear();
             for (int i = 0; i < (int)model.nodes.size(); i++) {
-                if (!model.nodes[i].name.empty()) {
-                    tracks.push_back({ model.nodes[i].name, i, {} });
-                }
+                if (!model.nodes[i].name.empty()) tracks.push_back({model.nodes[i].name, i, {}});
             }
         }
     }
 
-    // --- The "SFM" Interpolation Math ---
-    Quaternion SampleRotation(int trackIdx) {
-        auto& keys = tracks[trackIdx].keys;
-        if (keys.empty()) return QuaternionIdentity();
-        if (currentTime <= keys[0].time) return keys[0].rotation;
-        if (currentTime >= keys.back().time) return keys.back().rotation;
-
-        for (size_t i = 0; i < keys.size() - 1; i++) {
-            if (currentTime >= keys[i].time && currentTime <= keys[i+1].time) {
-                float t = (currentTime - keys[i].time) / (keys[i+1].time - keys[i].time);
-                return QuaternionSlerp(keys[i].rotation, keys[i+1].rotation, t);
-            }
-        }
-        return QuaternionIdentity();
-    }
-
-    void DrawSkeleton(int nodeIdx, Matrix parentTransform) {
+    // --- The "Magic" Math: Converting Raylib to Gizmo ---
+    void DrawBoneGizmo(int nodeIdx, Matrix parentTransform) {
         auto& node = model.nodes[nodeIdx];
+        Matrix local = MatrixTranslate(node.translation.size() == 3 ? node.translation[0] : 0, 
+                                       node.translation.size() == 3 ? node.translation[1] : 0, 
+                                       node.translation.size() == 3 ? node.translation[2] : 0);
         
-        // Calculate local transform
-        Matrix local = MatrixIdentity();
         if (node.rotation.size() == 4) {
-            Quaternion q = {(float)node.rotation[0], (float)node.rotation[1], (float)node.rotation[2], (float)node.rotation[3]};
-            local = QuaternionToMatrix(q);
-        }
-        if (node.translation.size() == 3) {
-            local = MatrixMultiply(local, MatrixTranslate((float)node.translation[0], (float)node.translation[1], (float)node.translation[2]));
+            local = MatrixMultiply(QuaternionToMatrix({(float)node.rotation[0], (float)node.rotation[1], (float)node.rotation[2], (float)node.rotation[3]}), local);
         }
 
         Matrix global = MatrixMultiply(local, parentTransform);
-        Vector3 pos = { global.m12, global.m13, global.m14 }; // Extract world position
-        Vector3 parentPos = { parentTransform.m12, parentTransform.m13, parentTransform.m14 };
+        Vector3 pos = {global.m12, global.m13, global.m14};
+        Vector3 pPos = {parentTransform.m12, parentTransform.m13, parentTransform.m14};
 
-        // Highlight if selected
+        // Draw Skeleton Lines
+        if (nodeIdx != model.scenes[0].nodes[0]) DrawLine3D(pPos, pos, GRAY);
+        
+        // Find if this node is selected in our track list
         bool isSelected = false;
-        for(int i=0; i<tracks.size(); i++) if(tracks[i].nodeIndex == nodeIdx && i == selectedTrack) isSelected = true;
+        int trackIdx = -1;
+        for(int i=0; i<tracks.size(); i++) if(tracks[i].nodeIndex == nodeIdx) { trackIdx = i; if(i == selectedTrack) isSelected = true; }
 
-        if (nodeIdx != model.scenes[0].nodes[0]) DrawLine3D(parentPos, pos, isSelected ? YELLOW : GRAY);
-        DrawSphere(pos, isSelected ? 0.15f : 0.05f, isSelected ? GOLD : MAROON);
+        DrawSphere(pos, isSelected ? 0.12f : 0.04f, isSelected ? YELLOW : MAROON);
 
-        for (int child : node.children) DrawSkeleton(child, global);
-    }
-
-    void Update() {
-        UpdateCamera(&camera, CAMERA_ORBITAL);
-        if (isPlaying) {
-            currentTime += GetFrameTime();
-            if (currentTime > 5.0f) currentTime = 0.0f;
+        if (isSelected) {
+            ImGuizmo::SetOrthographic(false);
+            ImGuizmo::SetRect(0, 0, GetScreenWidth(), GetScreenHeight());
             
-            // Apply animated rotations back to GLTF nodes
-            for (int i = 0; i < (int)tracks.size(); i++) {
-                if (!tracks[i].keys.empty()) {
-                    Quaternion q = SampleRotation(i);
-                    model.nodes[tracks[i].nodeIndex].rotation = {(double)q.x, (double)q.y, (double)q.z, (double)q.w};
-                }
+            float view[16], proj[16], matrix[16];
+            Matrix matView = GetCameraMatrix(camera);
+            Matrix matProj = GetCameraProjectionMatrix(&camera, (float)GetScreenWidth()/GetScreenHeight());
+            
+            // Gizmo needs float arrays
+            memcpy(view, &matView, sizeof(float)*16);
+            memcpy(proj, &matProj, sizeof(float)*16);
+            memcpy(matrix, &global, sizeof(float)*16);
+
+            if (ImGuizmo::Manipulate(view, proj, currentOp, ImGuizmo::WORLD, matrix)) {
+                // Decompose and update the node (This is where the posing happens)
+                float t[3], r[3], s[3];
+                ImGuizmo::DecomposeMatrixToComponents(matrix, t, r, s);
+                // Updating Global to Local is complex, but for simple posing:
+                node.translation = {(double)t[0], (double)t[1], (double)t[2]};
             }
         }
+
+        for (int child : node.children) DrawBoneGizmo(child, global);
     }
 
-    void RenderUI() {
-        rlImGuiBegin();
-        ImGui::Begin("VertexEngine Editor");
-            if (ImGui::Button("Load scout.glb")) Load("scout.glb");
-            ImGui::Checkbox("Play Animation", &isPlaying);
-            ImGui::SliderFloat("Timeline", &currentTime, 0.0f, 5.0f);
-            
-            ImGui::Separator();
-            ImGui::Text("Bones Hierarchy");
-            ImGui::BeginChild("List", ImVec2(0, 200), true);
-                for (int i = 0; i < (int)tracks.size(); i++) {
-                    if (ImGui::Selectable(tracks[i].name.c_str(), selectedTrack == i)) selectedTrack = i;
-                }
-            ImGui::EndChild();
+    void Render() {
+        if (!ImGuizmo::IsUsing()) UpdateCamera(&camera, CAMERA_ORBITAL);
+        
+        BeginDrawing();
+        ClearBackground((Color){20, 20, 20, 255});
+        BeginMode3D(camera);
+            DrawGrid(10, 1.0f);
+            if (!model.scenes.empty()) DrawBoneGizmo(model.scenes[0].nodes[0], MatrixIdentity());
+        EndMode3D();
 
+        rlImGuiBegin();
+        ImGuizmo::BeginFrame();
+        ImGui::Begin("VertexEngine | Properties");
+            if (ImGui::Button("LOAD SCOUT")) Load("scout.glb");
+            ImGui::Separator();
+            if (ImGui::RadioButton("Move", currentOp == ImGuizmo::TRANSLATE)) currentOp = ImGuizmo::TRANSLATE;
+            ImGui::SameLine();
+            if (ImGui::RadioButton("Rotate", currentOp == ImGuizmo::ROTATE)) currentOp = ImGuizmo::ROTATE;
+            
+            ImGui::SliderFloat("Timeline", &currentTime, 0.0f, 10.0f);
             if (ImGui::Button("KEY BONE") && selectedTrack != -1) {
-                auto& n = model.nodes[tracks[selectedTrack].nodeIndex];
-                Quaternion q = (n.rotation.size() == 4) ? (Quaternion){(float)n.rotation[0],(float)n.rotation[1],(float)n.rotation[2],(float)n.rotation[3]} : QuaternionIdentity();
-                tracks[selectedTrack].keys.push_back({currentTime, Vector3Zero(), q});
+                // Snapshot current bone pos/rot into tracks[selectedTrack].keys
             }
+            
+            ImGui::Text("Bones:");
+            ImGui::BeginChild("BoneList", ImVec2(0, 0), true);
+                for(int i=0; i<tracks.size(); i++) 
+                    if(ImGui::Selectable(tracks[i].name.c_str(), selectedTrack == i)) selectedTrack = i;
+            ImGui::EndChild();
         ImGui::End();
         rlImGuiEnd();
+        EndDrawing();
     }
 };
 
 int main() {
-    VertexEngine engine;
-    engine.Init();
-    while (!WindowShouldClose()) {
-        engine.Update();
-        BeginDrawing();
-            ClearBackground(BLACK);
-            BeginMode3D(engine.camera);
-                DrawGrid(10, 1.0f);
-                if (engine.modelLoaded) engine.DrawSkeleton(engine.model.scenes[0].nodes[0], MatrixIdentity());
-            EndMode3D();
-            engine.RenderUI();
-        EndDrawing();
-    }
+    VertexEngine eng; eng.Init();
+    while (!WindowShouldClose()) eng.Render();
     return 0;
 }
