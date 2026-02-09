@@ -16,7 +16,6 @@ jobs:
       with:
         submodules: recursive
 
-    # Using MSYS2 is the industry standard for MinGW on GitHub Actions
     - name: Setup MSYS2
       uses: msys2/setup-msys2@v2
       with:
@@ -28,10 +27,10 @@ jobs:
           mingw-w64-x86_64-ninja
 
     - name: Configure CMake
-      # Use 'shell: msys2 {0}' to ensure we are using the MSYS2 environment
       shell: msys2 {0}
+      # Use backslash (\) for line breaks in Bash
       run: |
-        cmake -S . -B build -G Ninja `
+        cmake -S . -B build -G Ninja \
         -DCMAKE_BUILD_TYPE=Release
 
     - name: Build Engine
