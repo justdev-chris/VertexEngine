@@ -16,20 +16,24 @@ jobs:
       with:
         submodules: recursive
 
+    # This is the correct, existing action for Ninja
     - name: Setup Ninja
-      uses: seanmiddleditch/setup-ninja@v4
+      uses: abel0b/setup-ninja@v1.1
 
     - name: Setup GCC (MinGW)
       uses: egor-tensin/setup-gcc@v1
       with:
-        ver: 13 # Stable version for Raylib/ImGui compatibility
+        ver: 13
 
     - name: Configure CMake
-      # This runs the CMakeLists.txt and fetches Raylib/ImGui/ImGuizmo
-      run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+      # We tell CMake to use Ninja and the GCC compilers explicitly
+      run: |
+        cmake -S . -B build -G Ninja `
+        -DCMAKE_C_COMPILER=gcc `
+        -DCMAKE_CXX_COMPILER=g++ `
+        -DCMAKE_BUILD_TYPE=Release
 
     - name: Build Engine
-      # This compiles the full main.cpp and dependencies
       run: cmake --build build --config Release
 
     - name: Upload Build Artifact
